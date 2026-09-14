@@ -1,0 +1,147 @@
+    LIST P=16F887
+    #include <p16f887.inc>
+    
+    __CONFIG _CONFIG1, _FOSC_INTRC_NOCLKOUT & _WDTE_OFF & _PWRTE_ON & _MCLRE_ON & _CP_OFF & _CPD_OFF & _BOREN_OFF & _IESO_OFF & _FCMEN_OFF & _LVP_OFF
+    __CONFIG _CONFIG2, _BOR4V_BOR40V & _WRT_OFF
+
+
+CONTADOR   EQU 0x20
+SEC_COUNT  EQU 0x21
+PATRON     EQU 0x22
+CONT_AUX   EQU 0x23
+CONT_US    EQU 0x24
+CONT_MS    EQU 0x25
+d	   EQU 0x26
+
+    ORG 0x0000
+    GOTO INICIO
+
+    ORG 0x0005
+
+INICIO:
+
+    BANKSEL ANSEL
+    CLRF ANSEL
+    CLRF ANSELH
+
+; Configuracion de puertos I/O:
+    BANKSEL TRISD
+    CLRF TRISD
+
+    BANKSEL TRISB
+    BSF TRISB,1
+    BSF TRISB,5
+
+; Activacion de resistencias pull-up internas del puerto B
+    BANKSEL OPTION_REG
+    BCF OPTION_REG, NOT_RBPU
+
+    BANKSEL WPUB
+    BSF WPUB,1
+    BSF WPUB,5
+
+; Los leds inician apagados y el contador en cero
+    BANKSEL PORTD
+    CLRF PORTD
+    CLRF CONTADOR
+    CLRF SEC_COUNT
+
+LOOP_PRINCIPAL:
+    BANKSEL PORTB
+    BTFSS PORTB,5
+    GOTO MODO_SECUENCIA
+    GOTO MODO_CONTADOR
+
+; Contador incrementado por el boton en RB1
+MODO_CONTADOR:
+    BANKSEL PORTB
+    BTFSC PORTB,1
+    GOTO LOOP_PRINCIPAL
+
+; Sistema antirrebote
+    CALL RETARDO_20MS
+
+    BANKSEL PORTB
+    BTFSC PORTB,1
+    GOTO LOOP_PRINCIPAL
+
+    INCF CONTADOR,F
+
+    MOVF CONTADOR,W
+    BANKSEL PORTD
+    MOVWF PORTD
+
+ESPERA_LIBERACION_RB1:
+    BANKSEL PORTB
+    BTFSS PORTB,1
+    GOTO ESPERA_LIBERACION_RB1
+
+    CALL RETARDO_20MS
+    GOTO LOOP_PRINCIPAL
+
+; Secuencia circular
+MODO_SECUENCIA:
+    MOVF SEC_COUNT,W
+    XORLW 0x08
+    BTFSS STATUS,Z
+    GOTO NO_REINICIA_SEC
+
+    CLRF SEC_COUNT
+
+; Patron de desplazamiento    
+NO_REINICIA_SEC:
+    INCF SEC_COUNT,F
+    CLRF PATRON
+    MOVF SEC_COUNT,W
+    MOVWF CONT_AUX
+
+BUCLE_PATRON:
+    BCF STATUS,C
+    RLF PATRON,F
+    BSF PATRON,0
+    DECFSZ CONT_AUX,F
+    GOTO BUCLE_PATRON
+
+    MOVF PATRON,W
+    BANKSEL PORTD
+    MOVWF PORTD
+
+; Evaluacion del switch para salir de la secuencia:
+; Si el switch RB5 volvio a 1, corta la secuencia y vuelve a evaluar
+
+    BANKSEL PORTB
+    BTFSC PORTB,5
+    GOTO LOOP_PRINCIPAL
+
+    CALL RETARDO_500MS
+    GOTO MODO_SECUENCIA
+
+RETARDO_20MS:
+    MOVLW d'20'
+    MOVWF CONT_MS
+    
+LAZO_20MS:
+    MOVLW 0xF9
+    MOVWF CONT_US
+    
+LOOP_1MS:
+    NOP
+    DECFSZ CONT_US,F
+    GOTO LOOP_1MS
+    DECFSZ CONT_MS,F
+    GOTO LAZO_20MS
+
+    RETURN
+    
+RETARDO_500MS:
+    MOVLW d'25'
+    MOVWF d
+    
+LAZO_500MS:
+    CALL RETARDO_20MS
+    DECFSZ d,F
+    GOTO LAZO_500MS
+
+    RETURN
+
+    END
